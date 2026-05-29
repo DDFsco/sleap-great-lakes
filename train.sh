@@ -11,34 +11,35 @@ fix_script_crlf "${SCRIPT_DIR}"
 load_conf
 SLEAP_WORK="$(resolve_work)"
 ensure_work_dirs "${SLEAP_WORK}"
-ZIP="${1:-${SLEAP_TRAINING_ZIP:-labels.v001.slp.training_job.zip}}"
+PKG_DIR="$(training_package_dir "${SLEAP_WORK}")"
+ZIP_ARG="${1:-${SLEAP_TRAINING_ZIP:-labels.v001.slp.training_job.zip}}"
 RUN_NAME="${2:-${SLEAP_RUN_NAME:-rat_v001}}"
 ACCOUNT="${SLEAP_SLURM_ACCOUNT:-gid0}"
 MAIL="${SLEAP_MAIL_USER:-${USER}@umich.edu}"
 PART="${SLEAP_GPU_PARTITION:-gpu}"
 GPU="${SLEAP_GPU_REQUEST:-v100:1}"
 
-mkdir -p "${SLEAP_WORK}"
-cd "${SLEAP_WORK}"
 echo "SLEAP_WORK=${SLEAP_WORK}"
-[[ "${ZIP}" == /* ]] && cp "${ZIP}" . && ZIP="$(basename "${ZIP}")"
-if [[ ! -f "${ZIP}" ]] && [[ -f "${HOME}/$(basename "${ZIP}")" ]]; then
-  cp "${HOME}/$(basename "${ZIP}")" .
-  ZIP="$(basename "${ZIP}")"
-fi
-if [[ ! -f "${ZIP}" ]]; then
-  echo "training zip not found. put it in ${SLEAP_WORK}/ or pass absolute path."
+echo "Training packages: ${PKG_DIR}/"
+
+if ! ZIP_PATH="$(resolve_training_zip "${SLEAP_WORK}" "${ZIP_ARG}")"; then
+  echo "training zip not found: ${ZIP_PATH}"
+  echo "Export the training job zip from the GUI to: ${PKG_DIR}/"
   exit 1
 fi
 
-unzip -o "${ZIP}" >/dev/null
-PKG_SLP="$(ls *.pkg.slp 2>/dev/null | head -n 1 || true)"
-if [[ -z "${PKG_SLP}" || ! -f single_instance.yaml ]]; then
+BUILD_DIR="${PKG_DIR}/.build/${RUN_NAME}"
+mkdir -p "${BUILD_DIR}"
+unzip -o "${ZIP_PATH}" -d "${BUILD_DIR}" >/dev/null
+PKG_SLP="$(find "${BUILD_DIR}" -maxdepth 1 -name '*.pkg.slp' -print -quit 2>/dev/null || true)"
+if [[ -z "${PKG_SLP}" || ! -f "${BUILD_DIR}/single_instance.yaml" ]]; then
   echo "zip missing required files: single_instance.yaml and *.pkg.slp"
+  echo "  zip: ${ZIP_PATH}"
   exit 1
 fi
+PKG_SLP="$(basename "${PKG_SLP}")"
 
-cat > train_job.sbatch <<EOF
+cat > "${SLEAP_WORK}/train_job.sbatch" <<EOF
 #!/bin/bash
 #SBATCH --job-name=sleap_train
 #SBATCH --account=${ACCOUNT}
@@ -56,19 +57,20 @@ module purge || true
 module load ${SLEAP_PYTHON_MODULE:-python/3.11.5}
 module load cuda/11.8.0 || true
 source ~/sleap_env/bin/activate
-cd "${SLEAP_WORK}"
+cd "${BUILD_DIR}"
 ~/sleap_env/bin/sleap-nn train single_instance.yaml \
   "data_config.train_labels_path=[${PKG_SLP}]" \
   trainer_config.trainer_accelerator=cuda \
-  trainer_config.ckpt_dir=models \
+  trainer_config.ckpt_dir="${SLEAP_WORK}/models" \
   trainer_config.run_name="${RUN_NAME}" \
   trainer_config.train_data_loader.num_workers=0 \
   trainer_config.val_data_loader.num_workers=0
 EOF
-chmod +x train_job.sbatch
+chmod +x "${SLEAP_WORK}/train_job.sbatch"
 
-echo "Submitting training on Slurm from ${SLEAP_WORK}"
-JOBID="$(sbatch --parsable train_job.sbatch)"
+echo "Training zip: ${ZIP_PATH}"
+echo "Submitting training on Slurm (build dir: ${BUILD_DIR})"
+JOBID="$(sbatch --parsable "${SLEAP_WORK}/train_job.sbatch")"
 echo "Submitted ${JOBID}"
 echo "Log: tail -f ${SLEAP_WORK}/slurm-${JOBID}.out"
 echo "Model dir: ${SLEAP_WORK}/models/${RUN_NAME}/"

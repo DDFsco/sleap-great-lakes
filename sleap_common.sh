@@ -33,7 +33,41 @@ resolve_work() {
 
 ensure_work_dirs() {
   local work="$1"
-  mkdir -p "${work}"/{labels,videos,models,exports,jobs}
+  mkdir -p "${work}"/{labels,videos,models,exports,jobs,training_package}
+}
+
+training_package_dir() {
+  local work="$1"
+  echo "${work}/${SLEAP_TRAINING_PKG_DIR:-training_package}"
+}
+
+resolve_training_zip() {
+  local work="$1"
+  local zip_arg="$2"
+  local pkg_dir base
+
+  pkg_dir="$(training_package_dir "${work}")"
+  mkdir -p "${pkg_dir}"
+
+  if [[ "${zip_arg}" == /* ]]; then
+    echo "${zip_arg}"
+    return 0
+  fi
+
+  base="$(basename "${zip_arg}")"
+  if [[ -f "${pkg_dir}/${base}" ]]; then
+    echo "${pkg_dir}/${base}"
+    return 0
+  fi
+
+  # Allow passing path relative to SLEAP_WORK, e.g. training_package/foo.zip
+  if [[ -f "${work}/${zip_arg}" ]]; then
+    echo "${work}/${zip_arg}"
+    return 0
+  fi
+
+  echo "${pkg_dir}/${base}"
+  return 1
 }
 
 fix_script_crlf() {

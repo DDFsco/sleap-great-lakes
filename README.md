@@ -57,11 +57,12 @@ Work data lives on **scratch**, not in home:
 
 ```text
 /scratch/gid_root/gid0/<uniqname>/sleap_rat/
-  labels/     .slp label projects
-  videos/     raw recordings (.mp4, .avi)
-  models/     trained checkpoints (<run_name>/)
-  exports/    predictions (*.predicted.slp), training zips
-  jobs/       optional artifacts
+  labels/            .slp label projects
+  videos/            raw recordings (.mp4, .avi)
+  training_package/  training job zips from GUI export
+  models/            trained checkpoints (<run_name>/)
+  exports/           predictions (*.predicted.slp)
+  jobs/              optional artifacts
 ```
 
 `install.sh` auto-sets `SLEAP_SCRATCH_DIR` in `~/sleap_gl.conf`. OOD nodes may not define `$SCRATCH`, so scripts always use this explicit path.
@@ -87,14 +88,29 @@ Wrong path example (does **not** exist on GL): `/scratch/uniqname/`
 ```bash
 # Step 1 — Label (OOD Remote Desktop terminal ONLY)
 bash ~/gl_sync/label.sh
+# Optional: bash ~/gl_sync/label.sh labels/rat_project.slp
 
-# Step 2 — Train (SSH login node, after exporting training zip to SLEAP_WORK)
+# Step 2 — Train (SSH login node, after exporting training zip to training_package/)
 bash ~/gl_sync/train.sh labels.v001.slp.training_job.zip rat_v001
 
 # Step 3 — Predict (SSH login node)
 bash ~/gl_sync/predict.sh videos/session01.mp4 models/rat_v001
 bash ~/gl_sync/predict.sh --all models/rat_v001
 ```
+
+**Parameters** (paths are relative to `SLEAP_WORK` unless you pass an absolute path):
+
+| Command | Argument | Meaning |
+|---------|----------|---------|
+| `label.sh` | *(none)* | Opens the default project `labels/rat_project.slp`; creates it if missing |
+| `label.sh` | `[project.slp]` | Path to a specific label project under `SLEAP_WORK/labels/` |
+| `train.sh` | `[training_zip]` | Filename of the training job zip in `training_package/` (e.g. `labels.v001.slp.training_job.zip`). Default: `SLEAP_TRAINING_ZIP` in `~/sleap_gl.conf` |
+| `train.sh` | `[run_name]` | Name for this training run; checkpoints go to `models/<run_name>/`. Use a new name for each attempt (e.g. `rat_v001-2`). Default: `SLEAP_RUN_NAME` in config |
+| `predict.sh` | `<video>` | Input video under `videos/` (e.g. `videos/session01.mp4`) |
+| `predict.sh` | `[model_dir]` | Trained model folder under `models/` (e.g. `models/rat_v001`). Default: `models/<SLEAP_RUN_NAME>` |
+| `predict.sh --all` | `[model_dir]` | Run prediction on every `.mp4`/`.avi` in `videos/` with the given model |
+
+Outputs: training → `models/<run_name>/`; prediction → `exports/<video_basename>.predicted.slp`
 
 Monitor jobs:
 
@@ -106,21 +122,21 @@ tail -f /scratch/gid_root/gid0/$USER/sleap_rat/slurm-<jobid>.out
 ## Workflow diagram
 
 ```text
-┌─────────────────┐     export zip      ┌──────────────┐     sbatch      ┌─────────────┐
-│  label.sh       │ ──────────────────► │  SLEAP_WORK/ │ ──────────────► │  train.sh   │
-│  (OOD GUI)      │   Predict→Run       │  *.training  │   GPU job       │  (Slurm)    │
-│  sleap-label    │   Training…         │  _job.zip    │                 └──────┬──────┘
-└─────────────────┘                     └──────────────┘                        │
-                                                                                ▼
-                                                                        models/<run_name>/
-                                                                                │
-                                                                                ▼
-                                                                        ┌─────────────┐
-                                                                        │ predict.sh  │
-                                                                        │ (Slurm GPU) │
-                                                                        └──────┬──────┘
-                                                                               ▼
-                                                                   exports/*.predicted.slp
+┌─────────────────┐     export zip      ┌─────────────────────┐     sbatch      ┌─────────────┐
+│  label.sh       │ ──────────────────► │ training_package/   │ ──────────────► │  train.sh   │
+│  (OOD GUI)      │   Predict→Run       │ *.training_job.zip  │   GPU job       │  (Slurm)    │
+│  sleap-label    │   Training…         └─────────────────────┘                 └──────┬──────┘
+└─────────────────┘                                                                   │
+                                                                                      ▼
+                                                                              models/<run_name>/
+                                                                                      │
+                                                                                      ▼
+                                                                              ┌─────────────┐
+                                                                              │ predict.sh  │
+                                                                              │ (Slurm GPU) │
+                                                                              └──────┬──────┘
+                                                                                     ▼
+                                                                         exports/*.predicted.slp
 ```
 
 ## Labeling (Open OnDemand)
@@ -134,7 +150,7 @@ bash ~/gl_sync/label.sh
 ```
 
 4. Label diverse frames (aim for 50–500+ for production models; ~25 frames works for smoke tests)
-5. **Predict → Run Training…** — configure training, then export the **training job zip** to `SLEAP_WORK/` (shown when `label.sh` starts)
+5. **Predict → Run Training…** — configure training, then export the **training job zip** to `SLEAP_WORK/training_package/` (path shown when `label.sh` starts)
 
 **Do not** run `label.sh` over plain SSH — it requires `DISPLAY` from the OOD desktop.
 
@@ -192,7 +208,7 @@ Bump `SLEAP_VERSION`, `SLEAP_IO_VERSION`, and `SLEAP_NN_VERSION` **together** pe
 | NumPy 2.x / PySide6 warnings | Do not `pip install -U` manually; run `install.sh --gui-only` |
 | Training OK but 0 predictions | Increase `sigma` in training export; check Slurm log |
 | `sbatch: Invalid account` | Set `SLEAP_SLURM_ACCOUNT` in `~/sleap_gl.conf` |
-| `training zip not found` | Export zip from GUI to `SLEAP_WORK/` or pass absolute path |
+| `training zip not found` | Export zip from GUI to `SLEAP_WORK/training_package/` |
 | `cuda False` on login node | Normal — GPU is used inside Slurm jobs |
 | scp hangs / fails | Use OOD file upload or `sftp` instead |
 

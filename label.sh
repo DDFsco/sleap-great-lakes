@@ -45,5 +45,5 @@ if [[ ! -f "${PROJECT}" ]]; then
   exec sleap-label
 fi
 
-echo "After labeling: Predict -> Run Training... -> export zip to ${SLEAP_WORK}/"
+echo "After labeling: Predict -> Run Training... -> export zip to $(training_package_dir "${SLEAP_WORK}")/"
 exec sleap-label "${PROJECT}"
