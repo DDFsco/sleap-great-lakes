@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Archives (local packaging only)
+*.tar.gz
+*.zip
+
+# User-specific config copies (never commit personal ~/sleap_gl.conf)
+sleap_gl.conf.local
+
+# Accidental job artifacts if testing locally
+slurm-*.out
+*.sbatch
+*.pkg.slp
+single_instance.yaml
